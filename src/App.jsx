@@ -40,7 +40,7 @@ function App() {
   });
 
   // Updated Hardcoded API URL (v3)
-  const scriptUrl = "https://script.google.com/macros/s/AKfycbzFF3G_Be4RAYQg1gYjUrMQOwxxrdkRW8F1KLDGlSNghxtmkz1Wvu7iJElNtOgLfS_gdg/exec";
+  const scriptUrl = "https://script.google.com/macros/s/AKfycbynCSyWfP4kwywZARcFz-HG9wfkH2jbySpVafLredBNA9ahE2G-WNSmsBovRK7GIL764A/exec";
 
   const [transactions, setTransactions] = useState([]);
   const [editingItem, setEditingItem] = useState(null);
@@ -146,8 +146,16 @@ function App() {
 
     setLoading(true);
     try {
-      await sendToScript({ action: 'backup', year: year });
-      alert(`"${year}" yılı için yedekleme başarıyla oluşturuldu/güncellendi!`);
+      const response = await sendToScript({ action: 'backup', year: year }); // Ensure we await the fetch wrapper if it returns JSON
+      // Note: sendToScript returns a fetch promise via 'no-cors' usually, but here we changed usage.
+      // Wait! 'no-cors' mode means we CANNOT read the response body. 
+      // We must assume success if no error is thrown, but we can't get the URL back in 'no-cors'.
+      // However, for Apps Script Web App, if we use 'cors' (not no-cors) and the script handles OPTIONS, we could read it.
+      // BUT, standard simple GAS setup usually requires 'no-cors' or redirects which fetch handles poorly.
+      // Let's stick to the alert for now, but since we can't read the response in 'no-cors', we can't show the URL.
+
+      // actually, let's try to trust the alert.
+      alert(`"${year}" yılı için yedekleme işlemi Sunucuya iletildi.\nLütfen Google Drive'da "ecomm/${year}" klasörünü kontrol edin.\n(Not: Dosya oluşması birkaç saniye sürebilir)`);
     } catch (err) {
       alert("Yedekleme sırasında bir hata oluştu: " + err.message);
     } finally {
