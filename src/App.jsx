@@ -62,13 +62,12 @@ function App() {
     } catch (e) { }
   }, [history]);
 
-  // Read Data (GET)
-  const fetchTransactions = async (yearToFetch = selectedYear) => {
+  // Read Data (GET) - Always fetches MAIN data
+  const fetchTransactions = async () => {
     if (!scriptUrl) return;
     setLoading(true);
     try {
-      // Append year parameter
-      const url = `${scriptUrl}?year=${yearToFetch}`;
+      const url = scriptUrl;
       const response = await fetch(url);
       const data = await response.json();
       if (Array.isArray(data)) {
@@ -107,19 +106,9 @@ function App() {
 
   // Initial Fetch
   useEffect(() => {
-    // First, try to get available years
-    fetchYears().then(() => {
-      // Then fetch transactions for the default/selected year
-      fetchTransactions(selectedYear);
-    });
-  }, []); // Run once on mount
-
-  // Refresh when year changes (and if it's not the initial mount)
-  useEffect(() => {
-    if (selectedYear) {
-      fetchTransactions(selectedYear);
-    }
-  }, [selectedYear]);
+    fetchYears();
+    fetchTransactions();
+  }, []);
 
   const handleAddCategory = (type, newCat) => {
     setCategories(prev => ({
@@ -181,38 +170,24 @@ function App() {
   };
 
   const handleBackup = async () => {
-    // Backup now backups the CURRENTLY SELECTED YEAR? 
-    // Or still prompts? The request said "yedekle kısmı aynen devam etsin".
-    // But logically, if I'm in 2024 view, I backup 2024.
-    // However, the prompt function allows user to type any year. 
-    // Let's keep the prompt as requested "aynen devam etsin".
+    const yearToBackup = selectedYear;
 
-    // BUT, the sendToScript now appends 'year: selectedYear' automatically.
-    // We should override it if the user types a different year in the prompt?
-    // Actually, backend 'backup' action uses 'data.year' from payload. 
-    // If we use sendToScript, it will have 'selectedYear' AND the 'year' we pass in payload.
-    // The payload one should take precedence if we structure it right or just pass it explicitly.
-    // sendToScript spreads payload ({...payload, year: selectedYear}).
-    // So if we pass {year: "2022"}, it gets overwritten by {year: "2025", year: "2022"}?
-    // No, standard Spread: { ...passed, year: selected } -> selected overrides passed!
-    // We need to fix sendToScript specific for backup or just use raw fetch here.
-
-    const yearInput = prompt("Yedeklemek istediğiniz YILI girin (Örn: 2025):", selectedYear);
-    if (!yearInput) return;
+    if (!confirm(`Ana veri dosyası "${yearToBackup}" klasörüne YEDEKLENECEK.\nBu işlem "${yearToBackup}" klasöründeki eski yedeğin üzerine yazar.\nEmin misiniz?`)) {
+      return;
+    }
 
     setLoading(true);
     try {
-      // Manual fetch to ensure we send the 'yearInput' as the target year
       await fetch(scriptUrl, {
         method: 'POST',
         mode: 'no-cors',
         headers: { 'Content-Type': 'text/plain' },
-        body: JSON.stringify({ action: 'backup', year: yearInput })
+        body: JSON.stringify({ action: 'backup', year: yearToBackup })
       });
 
-      alert(`"${yearInput}" yılı için yedekleme işlemi Sunucuya iletildi.\nLütfen Google Drive'da "ecomm/${yearInput}" klasörünü kontrol edin.\n(Not: Dosya oluşması birkaç saniye sürebilir)`);
+      alert(`Yedekleme başarılı.\nAna dosya -> ecomm/${yearToBackup}/data konumuna kopyalandı.`);
     } catch (err) {
-      alert("Yedekleme sırasında bir hata oluştu: " + err.message);
+      alert("Yedekleme hatası: " + err.message);
     } finally {
       setLoading(false);
     }
@@ -252,7 +227,8 @@ function App() {
           <p className="text-slate-400">E-ticaret Finans Yönetimi v3</p>
 
           {/* Year Selector */}
-          <div className="absolute top-4 right-4 flex items-center gap-2">
+          <div className="absolute top-4 right-4 flex items-center gap-2 bg-slate-900/50 p-2 rounded-lg border border-slate-700">
+            <span className="text-xs text-slate-400 font-bold uppercase mr-1">Yedek Yılı:</span>
             <select
               value={selectedYear}
               onChange={handleYearChange}
@@ -292,9 +268,9 @@ function App() {
             <div className="flex justify-between items-center bg-white/5 p-4 rounded-xl border border-white/10 mb-4">
               <div>
                 <h2 className="text-lg font-bold flex items-center gap-2">
-                  Veri Tabanı: <span className="text-yellow-400 font-mono text-xl">{selectedYear}</span>
+                  Aktif Veri Tabanı
                 </h2>
-                <span className="text-xs text-slate-500">Google Sheet Bağlantılı</span>
+                <span className="text-xs text-green-400">ecomm/data (Canlı)</span>
               </div>
               <div className="flex items-center">
                 <button
