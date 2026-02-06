@@ -40,11 +40,15 @@ function App() {
   });
 
   // Updated Hardcoded API URL (v3)
-  const scriptUrl = "https://script.google.com/macros/s/AKfycbynCSyWfP4kwywZARcFz-HG9wfkH2jbySpVafLredBNA9ahE2G-WNSmsBovRK7GIL764A/exec";
+  const scriptUrl = "https://script.google.com/macros/s/AKfycbw2CXc4J2_0EhRRLp5VsWtjEY6ZOoR9E-iw91Jo_THK5KJUANrhsTVgEN98hLsEy3KIyQ/exec";
 
   const [transactions, setTransactions] = useState([]);
   const [editingItem, setEditingItem] = useState(null);
   const [loading, setLoading] = useState(false);
+
+  // NEW: Year State
+  const [years, setYears] = useState([]);
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
 
   useEffect(() => {
     try {
@@ -59,11 +63,13 @@ function App() {
   }, [history]);
 
   // Read Data (GET)
-  const fetchTransactions = async () => {
+  const fetchTransactions = async (yearToFetch = selectedYear) => {
     if (!scriptUrl) return;
     setLoading(true);
     try {
-      const response = await fetch(scriptUrl);
+      // Append year parameter
+      const url = `${scriptUrl}?year=${yearToFetch}`;
+      const response = await fetch(url);
       const data = await response.json();
       if (Array.isArray(data)) {
         setTransactions(data);
@@ -78,10 +84,42 @@ function App() {
     }
   };
 
+  // Fetch Years List
+  const fetchYears = async () => {
+    try {
+      const url = `${scriptUrl}?action=getYears`;
+      const response = await fetch(url);
+      const data = await response.json();
+      if (Array.isArray(data) && data.length > 0) {
+        setYears(data);
+        // data is sorted NEW -> OLD. So data[0] is likely the latest year.
+        // If current selectedYear is NOT in the list, switch to the latest one?
+        // Or if the list is empty, we keep default.
+        if (!data.includes(selectedYear)) {
+          // Optional: Auto-select latest year if current one not found
+          // setSelectedYear(data[0]); 
+        }
+      }
+    } catch (err) {
+      console.error("Error fetching years:", err);
+    }
+  };
+
   // Initial Fetch
   useEffect(() => {
-    fetchTransactions();
-  }, []);
+    // First, try to get available years
+    fetchYears().then(() => {
+      // Then fetch transactions for the default/selected year
+      fetchTransactions(selectedYear);
+    });
+  }, []); // Run once on mount
+
+  // Refresh when year changes (and if it's not the initial mount)
+  useEffect(() => {
+    if (selectedYear) {
+      fetchTransactions(selectedYear);
+    }
+  }, [selectedYear]);
 
   const handleAddCategory = (type, newCat) => {
     setCategories(prev => ({
@@ -91,12 +129,14 @@ function App() {
   };
 
   const sendToScript = (payload) => {
-    // We use no-cors for POST requests to Apps Script
+    // Add YEAR to every payload
+    const finalPayload = { ...payload, year: selectedYear };
+
     return fetch(scriptUrl, {
       method: 'POST',
       mode: 'no-cors',
       headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(finalPayload)
     });
   };
 
@@ -119,7 +159,7 @@ function App() {
         alert("Kaydedildi! (Tablo yenileniyor...)");
       }
       // Wait a bit for GAS to process before fetching
-      setTimeout(fetchTransactions, 2500);
+      setTimeout(() => fetchTransactions(selectedYear), 2500);
     } catch (err) {
       alert("Hata oluştu.");
     } finally {
@@ -128,11 +168,11 @@ function App() {
   };
 
   const handleDelete = async (ids) => {
-    setLoading(true); // Optimistic UI could be better but let's be safe
+    setLoading(true);
     try {
       await sendToScript({ action: 'delete', ids: ids });
       alert("Silindi! (Tablo yenileniyor...)");
-      setTimeout(fetchTransactions, 2500);
+      setTimeout(() => fetchTransactions(selectedYear), 2500);
     } catch (err) {
       alert("Silme hatası.");
     } finally {
@@ -141,26 +181,60 @@ function App() {
   };
 
   const handleBackup = async () => {
-    const year = prompt("Yedeklemek istediğiniz YILI girin (Örn: 2025):");
-    if (!year) return; // User cancelled
+    // Backup now backups the CURRENTLY SELECTED YEAR? 
+    // Or still prompts? The request said "yedekle kısmı aynen devam etsin".
+    // But logically, if I'm in 2024 view, I backup 2024.
+    // However, the prompt function allows user to type any year. 
+    // Let's keep the prompt as requested "aynen devam etsin".
+
+    // BUT, the sendToScript now appends 'year: selectedYear' automatically.
+    // We should override it if the user types a different year in the prompt?
+    // Actually, backend 'backup' action uses 'data.year' from payload. 
+    // If we use sendToScript, it will have 'selectedYear' AND the 'year' we pass in payload.
+    // The payload one should take precedence if we structure it right or just pass it explicitly.
+    // sendToScript spreads payload ({...payload, year: selectedYear}).
+    // So if we pass {year: "2022"}, it gets overwritten by {year: "2025", year: "2022"}?
+    // No, standard Spread: { ...passed, year: selected } -> selected overrides passed!
+    // We need to fix sendToScript specific for backup or just use raw fetch here.
+
+    const yearInput = prompt("Yedeklemek istediğiniz YILI girin (Örn: 2025):", selectedYear);
+    if (!yearInput) return;
 
     setLoading(true);
     try {
-      const response = await sendToScript({ action: 'backup', year: year }); // Ensure we await the fetch wrapper if it returns JSON
-      // Note: sendToScript returns a fetch promise via 'no-cors' usually, but here we changed usage.
-      // Wait! 'no-cors' mode means we CANNOT read the response body. 
-      // We must assume success if no error is thrown, but we can't get the URL back in 'no-cors'.
-      // However, for Apps Script Web App, if we use 'cors' (not no-cors) and the script handles OPTIONS, we could read it.
-      // BUT, standard simple GAS setup usually requires 'no-cors' or redirects which fetch handles poorly.
-      // Let's stick to the alert for now, but since we can't read the response in 'no-cors', we can't show the URL.
+      // Manual fetch to ensure we send the 'yearInput' as the target year
+      await fetch(scriptUrl, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify({ action: 'backup', year: yearInput })
+      });
 
-      // actually, let's try to trust the alert.
-      alert(`"${year}" yılı için yedekleme işlemi Sunucuya iletildi.\nLütfen Google Drive'da "ecomm/${year}" klasörünü kontrol edin.\n(Not: Dosya oluşması birkaç saniye sürebilir)`);
+      alert(`"${yearInput}" yılı için yedekleme işlemi Sunucuya iletildi.\nLütfen Google Drive'da "ecomm/${yearInput}" klasörünü kontrol edin.\n(Not: Dosya oluşması birkaç saniye sürebilir)`);
     } catch (err) {
       alert("Yedekleme sırasında bir hata oluştu: " + err.message);
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleYearChange = (e) => {
+    setSelectedYear(e.target.value);
+    // Grid will update via useEffect dependancy on selectedYear
+  };
+
+  const handleCreateNewYear = async () => {
+    const newYear = prompt("Yeni Yıl Girin (Örn: 2026):");
+    if (!newYear) return;
+    if (years.includes(newYear)) {
+      alert("Bu yıl zaten listede var.");
+      setSelectedYear(newYear);
+      return;
+    }
+    // Optimistically add to list and select it
+    // The backend will create the folder/file when we first save data to it.
+    setYears(prev => [newYear, ...prev].sort((a, b) => b - a));
+    setSelectedYear(newYear);
   };
 
   console.log("App Rendering...");
@@ -169,13 +243,35 @@ function App() {
     <div className="flex flex-col items-center justify-start min-h-screen w-full py-10 px-4">
       <div className="w-full max-w-[98%]">
 
-        <header className="mb-8 text-center bg-slate-800 p-4 rounded-lg">
+        <header className="mb-8 text-center bg-slate-800 p-4 rounded-lg relative">
           <div className="inline-block p-3 bg-white/5 rounded-2xl mb-4 border border-white/10 shadow-2xl">
             <h1 className="text-3xl m-0 bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
               YEGEN LLC
             </h1>
           </div>
-          <p className="text-slate-400">E-ticaret Finans Yönetimi v2</p>
+          <p className="text-slate-400">E-ticaret Finans Yönetimi v3</p>
+
+          {/* Year Selector */}
+          <div className="absolute top-4 right-4 flex items-center gap-2">
+            <select
+              value={selectedYear}
+              onChange={handleYearChange}
+              className="bg-slate-700 text-white p-2 rounded border border-slate-600 outline-none focus:border-blue-400"
+            >
+              {years.map(y => (
+                <option key={y} value={y}>{y}</option>
+              ))}
+              {/* Fallback if list is empty or selected not in list */}
+              {!years.includes(selectedYear) && <option value={selectedYear}>{selectedYear}</option>}
+            </select>
+            <button
+              onClick={handleCreateNewYear}
+              className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-2 rounded text-sm font-bold"
+              title="Yeni Yıl Ekle"
+            >
+              +
+            </button>
+          </div>
         </header>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
@@ -195,12 +291,14 @@ function App() {
           <div className="lg:col-span-2">
             <div className="flex justify-between items-center bg-white/5 p-4 rounded-xl border border-white/10 mb-4">
               <div>
-                <h2 className="text-lg font-bold">Veri Tabanı</h2>
+                <h2 className="text-lg font-bold flex items-center gap-2">
+                  Veri Tabanı: <span className="text-yellow-400 font-mono text-xl">{selectedYear}</span>
+                </h2>
                 <span className="text-xs text-slate-500">Google Sheet Bağlantılı</span>
               </div>
               <div className="flex items-center">
                 <button
-                  onClick={fetchTransactions}
+                  onClick={() => fetchTransactions(selectedYear)}
                   disabled={loading}
                   className="p-2 bg-blue-600 rounded-lg text-white hover:bg-blue-500 disabled:opacity-50"
                   title="Yenile"

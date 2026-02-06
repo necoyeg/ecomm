@@ -64,8 +64,11 @@ function doPost(e) {
     lock.tryLock(10000);
 
     try {
+        console.log("doPost Data:", e.postData.contents); // LOGGING ADDED
         var body = JSON.parse(e.postData.contents);
         var action = body.action || 'create';
+        console.log("Action:", action); // LOGGING ADDED
+
         var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
         var rows = sheet.getDataRange().getValues();
 
@@ -176,9 +179,13 @@ function backupSheet(year) {
         }
 
         // 5. Make a copy
-        file.makeCopy(newName, yearFolder);
+        var newFile = file.makeCopy(newName, yearFolder);
 
-        return { result: "success", message: "Backup created: " + newName };
+        return {
+            result: "success",
+            message: "Backup created: " + newName,
+            url: newFile.getUrl()
+        };
 
     } catch (err) {
         return { result: "error", message: err.toString() };
@@ -201,4 +208,10 @@ function calculateUsd(amount, currency) {
 function response(data) {
     return ContentService.createTextOutput(JSON.stringify(data))
         .setMimeType(ContentService.MimeType.JSON);
+}
+
+function debugBackup() {
+    // Bu fonksiyonu manuel çalıştırarak test edin
+    var result = backupSheet('2025');
+    console.log("Sonuç:", JSON.stringify(result));
 }
