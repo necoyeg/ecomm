@@ -40,6 +40,7 @@ function doGet(e) {
     }
 
     // Determine which file to read from
+    // Determine which file to read from
     try {
         if (year && year.length === 4) {
             // Try to find the Archive file for this year
@@ -47,17 +48,19 @@ function doGet(e) {
             if (archiveFile) {
                 ss = SpreadsheetApp.open(archiveFile);
             } else {
-                // Fallback to Master if year requested but not found (or treat as live)
-                ss = SpreadsheetApp.getActiveSpreadsheet();
+                // If year requested but file NOT FOUND, return empty list immediately.
+                // Do NOT fallback to Master, as this confuses the user.
+                return ContentService.createTextOutput(JSON.stringify([]))
+                    .setMimeType(ContentService.MimeType.JSON);
             }
         } else {
-            // Default to Master
+            // Default to Master (Live Data)
             ss = SpreadsheetApp.getActiveSpreadsheet();
         }
     } catch (err) {
-        // Fallback on error
         console.error("Error opening year file: " + err);
-        ss = SpreadsheetApp.getActiveSpreadsheet();
+        return ContentService.createTextOutput(JSON.stringify([]))
+            .setMimeType(ContentService.MimeType.JSON);
     }
 
     var sheet = ss.getActiveSheet();

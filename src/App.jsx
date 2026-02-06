@@ -40,7 +40,7 @@ function App() {
   });
 
   // Updated Hardcoded API URL (v3)
-  const scriptUrl = "https://script.google.com/macros/s/AKfycbwQb5c1p7wvkULK40dfPbn8dnO7iacxdIi0zDhPJFUu2rOiwPZJCyTYwOSFuO9J3nS81w/exec";
+  const scriptUrl = "https://script.google.com/macros/s/AKfycbxrR9OYlnp2cEqU52hW1MWxY82lMNFjFYYiL4oMHYCOi9dWL1kH03IAWQDVat9KUkbWGw/exec";
 
   const [transactions, setTransactions] = useState([]);
   const [editingItem, setEditingItem] = useState(null);
