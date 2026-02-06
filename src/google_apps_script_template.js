@@ -1,49 +1,74 @@
 /**
- * Google Apps Script for E-commerce Invoice App (v2.1 - With Document Owner)
+ * Google Apps Script for E-commerce Invoice App (v3.0 - Live/Archive Workflow)
  * 
  * Instructions:
  * 1. Open your existing Google Apps Script project.
  * 2. Replace ALL code with this new version.
- * 3. Run 'setupSheet()' ONCE to add the new 'Document Owner' column.
- *    (It will try to preserve existing data but backing up your sheet is recommended).
+ * 3. Run 'setupSheet()' ONCE (Optional, if columns missing).
  * 4. Deploy > Manage Deployments > Edit (pencil) > New Version > Deploy.
- *    (Crucial: You must create a NEW VERSION for changes to take effect).
  */
 
 function setupSheet() {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
-    ss.rename("YEGENLLC"); // Rename the file
+    // ss.rename("YEGENLLC"); // DISABLED: Prevent renaming backup files
     var sheet = ss.getActiveSheet();
+
     // Check headers
     var firstRow = sheet.getRange(1, 1, 1, 20).getValues()[0];
-
-    // Define Desired Headers
     var headers = ["ID", "Date", "Type", "Category", "Document Owner", "Description", "Amount", "Currency", "USD Value", "Invoice No", "Timestamp"];
-
-    // If headers don't match or 'Document Owner' is missing, let's just rewrite headers if ID is present
-    // Or simpler: Check if 'Document Owner' exists, if not insert it.
 
     var ownerIdx = firstRow.indexOf("Document Owner");
 
     if (ownerIdx == -1) {
-        // Assume standard structure: ID(0), Date(1), Type(2), Cat(3), Desc(4)...
-        // We want to insert Document Owner after Category (index 3) -> so at visual index 5 (1-based)
-
-        // Let's verify if we have the standard base.
         if (firstRow[0] === "ID") {
-            // Insert Column after Category (Column 4)
             sheet.insertColumnAfter(4);
             sheet.getRange(1, 5).setValue("Document Owner").setFontWeight("bold");
         } else {
-            // Initialize from scratch
             sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight("bold");
         }
     }
 }
 
 function doGet(e) {
-    var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+    var year = e.parameter.year;
+    var action = e.parameter.action;
+    var ss;
+
+    // Separate action for fetching years list
+    if (action === 'getYears') {
+        return getYearsList();
+    }
+
+    // Determine which file to read from
+    try {
+        if (year && year.length === 4) {
+            // Try to find the Archive file for this year
+            var archiveFile = findArchiveFile(year);
+            if (archiveFile) {
+                ss = SpreadsheetApp.open(archiveFile);
+            } else {
+                // Fallback to Master if year requested but not found (or treat as live)
+                ss = SpreadsheetApp.getActiveSpreadsheet();
+            }
+        } else {
+            // Default to Master
+            ss = SpreadsheetApp.getActiveSpreadsheet();
+        }
+    } catch (err) {
+        // Fallback on error
+        console.error("Error opening year file: " + err);
+        ss = SpreadsheetApp.getActiveSpreadsheet();
+    }
+
+    var sheet = ss.getActiveSheet();
     var data = sheet.getDataRange().getValues();
+
+    // If empty or just headers
+    if (data.length <= 1) {
+        return ContentService.createTextOutput(JSON.stringify([]))
+            .setMimeType(ContentService.MimeType.JSON);
+    }
+
     var headers = data[0];
     var rows = data.slice(1);
 
@@ -64,24 +89,23 @@ function doPost(e) {
     lock.tryLock(10000);
 
     try {
-        console.log("doPost Data:", e.postData.contents); // LOGGING ADDED
         var body = JSON.parse(e.postData.contents);
         var action = body.action || 'create';
-        console.log("Action:", action); // LOGGING ADDED
 
-        var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+        // WRITE Operations ALWAYS go to the MASTER (Active) Spreadsheet
+        var ss = SpreadsheetApp.getActiveSpreadsheet();
+        var sheet = ss.getActiveSheet();
         var rows = sheet.getDataRange().getValues();
 
         if (action === 'create') {
             var usdValue = calculateUsd(body.amount, body.currency);
             var newId = Utilities.getUuid();
-            // Headers: ID, Date, Type, Category, Document Owner, Description, Amount, Currency, USD Value, Invoice No, Timestamp
             sheet.appendRow([
                 newId,
                 body.date,
                 body.type,
                 body.category,
-                body.documentOwner || '', // New field
+                body.documentOwner || '',
                 body.description,
                 body.amount,
                 body.currency,
@@ -97,10 +121,6 @@ function doPost(e) {
             if (rowIndex == -1) return response({ result: "error", message: "ID not found" });
 
             var usdValue = calculateUsd(body.amount, body.currency);
-
-            // Update specific cells (Index is 0-based, Range is 1-based)
-            // Col Mapping: 
-            // 1:ID, 2:Date, 3:Type, 4:Cat, 5:Owner, 6:Desc, 7:Amt, 8:Curr, 9:USD, 10:Inv
             var realRow = rowIndex + 1;
 
             sheet.getRange(realRow, 2).setValue(body.date);
@@ -118,22 +138,20 @@ function doPost(e) {
 
         else if (action === 'delete') {
             var ids = body.ids || [body.id];
-
-            for (var i = 0; i < ids.length; i++) {
-                var freshRows = sheet.getDataRange().getValues();
-                var idx = findRowIndexById(freshRows, ids[i]);
-                if (idx != -1) {
-                    sheet.deleteRow(idx + 1);
-                }
-            }
-
+            // Delete from bottom up to avoid index shifting issues, though re-finding by ID is safer
+            // For simplicity, we'll just re-fetch data for each delete or sort IDs
+            // Optimally:
+            ids.forEach(function (id) {
+                var currentData = sheet.getDataRange().getValues();
+                var idx = findRowIndexById(currentData, id);
+                if (idx != -1) sheet.deleteRow(idx + 1);
+            });
             return response({ result: "success" });
         }
 
         else if (action === 'backup') {
             var year = body.year;
             if (!year) return response({ result: "error", message: "Year is required" });
-
             var result = backupSheet(year);
             return response(result);
         }
@@ -145,13 +163,64 @@ function doPost(e) {
     }
 }
 
+// Helper: Find Archive File
+// Folder Structure: ecomm > [Year] > [Year] YEGENLLC
+function findArchiveFile(year) {
+    try {
+        var parentFolder = DriveApp.getRootFolder();
+        var ecommIter = parentFolder.getFoldersByName("ecomm");
+        if (!ecommIter.hasNext()) return null;
+        var ecommFolder = ecommIter.next();
+
+        var yearIter = ecommFolder.getFoldersByName(year.toString());
+        if (!yearIter.hasNext()) return null;
+        var yearFolder = yearIter.next();
+
+        var files = yearFolder.getFilesByName(year + " YEGENLLC");
+        if (files.hasNext()) return files.next();
+
+        return null;
+    } catch (e) {
+        console.error(e);
+        return null; // Return null on any error
+    }
+}
+
+function getYearsList() {
+    // Scan 'ecomm' folder for year folders
+    try {
+        var years = [];
+        var parentFolder = DriveApp.getRootFolder();
+        var ecommIter = parentFolder.getFoldersByName("ecomm");
+
+        if (ecommIter.hasNext()) {
+            var ecommFolder = ecommIter.next();
+            var folders = ecommFolder.getFolders();
+            while (folders.hasNext()) {
+                var folder = folders.next();
+                var name = folder.getName();
+                // Simple regex to check if folder name is a 4-digit year
+                if (/^\d{4}$/.test(name)) {
+                    years.push(name);
+                }
+            }
+        }
+        // Sort descending
+        years.sort(function (a, b) { return b - a });
+        return ContentService.createTextOutput(JSON.stringify(years))
+            .setMimeType(ContentService.MimeType.JSON);
+    } catch (e) {
+        return ContentService.createTextOutput(JSON.stringify([]))
+            .setMimeType(ContentService.MimeType.JSON);
+    }
+}
+
 function backupSheet(year) {
     try {
         var ss = SpreadsheetApp.getActiveSpreadsheet();
         var file = DriveApp.getFileById(ss.getId());
-        var parentFolder = DriveApp.getRootFolder(); // Default to root
+        var parentFolder = DriveApp.getRootFolder();
 
-        // 1. Find or Create 'ecomm' folder
         var ecommIter = parentFolder.getFoldersByName("ecomm");
         var ecommFolder;
         if (ecommIter.hasNext()) {
@@ -160,7 +229,6 @@ function backupSheet(year) {
             ecommFolder = parentFolder.createFolder("ecomm");
         }
 
-        // 2. Find or Create Year folder inside 'ecomm'
         var yearIter = ecommFolder.getFoldersByName(year.toString());
         var yearFolder;
         if (yearIter.hasNext()) {
@@ -169,16 +237,12 @@ function backupSheet(year) {
             yearFolder = ecommFolder.createFolder(year.toString());
         }
 
-        // 3. Define new filename
         var newName = year + " YEGENLLC";
-
-        // 4. Check if file exists and trash it
         var existingFiles = yearFolder.getFilesByName(newName);
         while (existingFiles.hasNext()) {
             existingFiles.next().setTrashed(true);
         }
 
-        // 5. Make a copy
         var newFile = file.makeCopy(newName, yearFolder);
 
         return {
@@ -208,10 +272,4 @@ function calculateUsd(amount, currency) {
 function response(data) {
     return ContentService.createTextOutput(JSON.stringify(data))
         .setMimeType(ContentService.MimeType.JSON);
-}
-
-function debugBackup() {
-    // Bu fonksiyonu manuel çalıştırarak test edin
-    var result = backupSheet('2025');
-    console.log("Sonuç:", JSON.stringify(result));
 }

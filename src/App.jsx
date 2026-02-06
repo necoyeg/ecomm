@@ -40,7 +40,7 @@ function App() {
   });
 
   // Updated Hardcoded API URL (v3)
-  const scriptUrl = "https://script.google.com/macros/s/AKfycbw2CXc4J2_0EhRRLp5VsWtjEY6ZOoR9E-iw91Jo_THK5KJUANrhsTVgEN98hLsEy3KIyQ/exec";
+  const scriptUrl = "https://script.google.com/macros/s/AKfycbwQb5c1p7wvkULK40dfPbn8dnO7iacxdIi0zDhPJFUu2rOiwPZJCyTYwOSFuO9J3nS81w/exec";
 
   const [transactions, setTransactions] = useState([]);
   const [editingItem, setEditingItem] = useState(null);
@@ -62,12 +62,12 @@ function App() {
     } catch (e) { }
   }, [history]);
 
-  // Read Data (GET) - Always fetches MAIN data
-  const fetchTransactions = async () => {
+  // Read Data (GET) - Fetches data for selected year (Archive) or fallback to Master
+  const fetchTransactions = async (year) => {
     if (!scriptUrl) return;
     setLoading(true);
     try {
-      const url = scriptUrl;
+      const url = `${scriptUrl}?year=${year || selectedYear}`;
       const response = await fetch(url);
       const data = await response.json();
       if (Array.isArray(data)) {
@@ -107,8 +107,8 @@ function App() {
   // Initial Fetch
   useEffect(() => {
     fetchYears();
-    fetchTransactions();
-  }, []);
+    fetchTransactions(selectedYear);
+  }, [selectedYear]);
 
   const handleAddCategory = (type, newCat) => {
     setCategories(prev => ({
@@ -270,7 +270,9 @@ function App() {
                 <h2 className="text-lg font-bold flex items-center gap-2">
                   Aktif Veri Tabanı
                 </h2>
-                <span className="text-xs text-green-400">ecomm/data (Canlı)</span>
+                <span className="text-xs text-green-400">
+                  {years.includes(selectedYear) ? `Arşiv Modu (${selectedYear})` : 'ecomm/data (Canlı)'}
+                </span>
               </div>
               <div className="flex items-center">
                 <button

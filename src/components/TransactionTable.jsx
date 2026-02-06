@@ -64,14 +64,14 @@ const TransactionTable = ({ transactions, onEdit, onDelete }) => {
                                         className="cursor-pointer"
                                     />
                                 </th>
-                                <th className="p-4">Tarih</th>
-                                <th className="p-4">Fatura No</th>
-                                <th className="p-4">Kategori</th>
-                                <th className="p-4">Belge Sahibi</th>
-                                <th className="p-4">Açıklama</th>
-                                <th className="p-4 text-right">Miktar</th>
-                                <th className="p-4 text-right">USD Değeri</th>
-                                <th className="p-4 text-center">İşlem</th>
+                                <th className="p-4">Date</th>
+                                <th className="p-4">Invoice No</th>
+                                <th className="p-4">Category</th>
+                                <th className="p-4">Document Owner</th>
+                                <th className="p-4">Description</th>
+                                <th className="p-4 text-right">Amount</th>
+                                <th className="p-4 text-right">USD Value</th>
+                                <th className="p-4 text-center">Actions</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-white/10">
